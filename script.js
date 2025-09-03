@@ -133,13 +133,14 @@ async function transformSketch() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ imageBase64: base64, style: selectedStyle })
         });
+if (!response.ok) {
+    const txt = await response.text().catch(() => "");
+    const msg = txt || `${response.status} ${response.statusText}`;
+    console.error("Transform failed:", msg);
+    showNotification("Transform failed: " + msg, "error");
+    return;
+}
 
-        if (!response.ok) {
-            const err = await response.text();
-            console.error("Transform failed:", err);
-            showNotification("Transform failed: " + err, "error");
-            return;
-        }
 
         // Show the returned image
         const blob = await response.blob();
