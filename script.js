@@ -114,42 +114,57 @@ function updateTransformButton() {
     transformBtn.disabled = !(selectedFile && selectedStyle);
 }
 
-function transformSketch() {
+async function transformSketch() {
     if (!selectedFile || !selectedStyle) {
         showNotification('Please select both an image and a style.', 'error');
         return;
     }
-    
+
     showLoading(true);
-    
-    // Simulate API call with setTimeout
-    setTimeout(() => {
-        // Mock transformation - in real app, this would call an AI API
-        const mockResult = generateMockResult(selectedStyle);
-        resultImage.src = mockResult;
-        
+    transformBtn.disabled = true;
+
+    try {
+        // Convert the uploaded file to base64 (without the prefix)
+        const base64 = await fileToBase64(selectedFile);
+
+        // Call your Vercel backend function
+        const response = await fetch("https://sketch-to-style-app.vercel.app/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageBase64: base64, style: selectedStyle })
+        });
+
+        if (!response.ok) {
+            const err = await response.text();
+            console.error("Transform failed:", err);
+            showNotification("Transform failed: " + err, "error");
+            return;
+        }
+
+        // Show the returned image
+        const blob = await response.blob();
+        resultImage.src = URL.createObjectURL(blob);
+        resultSection.style.display = "block";
+        resultSection.scrollIntoView({ behavior: "smooth" });
+
+        showNotification("Sketch transformed successfully!", "success");
+    } catch (err) {
+        console.error(err);
+        showNotification("Network error: " + err.message, "error");
+    } finally {
         showLoading(false);
-        resultSection.style.display = 'block';
-        
-        // Scroll to result
-        resultSection.scrollIntoView({ behavior: 'smooth' });
-        
-        showNotification('Sketch transformed successfully!', 'success');
-    }, 3000);
+        transformBtn.disabled = false;
+    }
 }
 
-function generateMockResult(style) {
-    // Mock result images based on style
-    const mockImages = {
-        'watercolor': 'https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=600&h=400&fit=crop',
-        'oil-painting': 'https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=600&h=400&fit=crop',
-        'digital-art': 'https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=600&h=400&fit=crop',
-        'sketch': 'https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=600&h=400&fit=crop',
-        'cartoon': 'https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=600&h=400&fit=crop',
-        'realistic': 'https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=600&h=400&fit=crop'
-    };
-    
-    return mockImages[style] || mockImages['watercolor'];
+// helper to get base64 (strip prefix)
+function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(",")[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
 }
 
 // Loading functions
