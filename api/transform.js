@@ -1,4 +1,3 @@
-/api/transform.js
 // /api/transform.js
 export const config = { runtime: "edge" }; // faster cold start
 
