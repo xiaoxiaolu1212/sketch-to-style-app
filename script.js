@@ -128,7 +128,7 @@ async function transformSketch() {
         const base64 = await fileToBase64(selectedFile);
 
         // Call your Vercel backend function
-        const response = await fetch("https://sketch-to-style-app.vercel.app/", {
+        const response = await fetch("https://sketch-to-style-app.vercel.app/api/transform", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ imageBase64: base64, style: selectedStyle })
