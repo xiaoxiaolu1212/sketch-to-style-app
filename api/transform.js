@@ -1,4 +1,3 @@
-export const config = { runtime: "edge" }; // If you hit timeouts, see note below
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
