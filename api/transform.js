@@ -1,11 +1,9 @@
 // /api/transform.js  (Node runtime)
 
 export default async function handler(req, res) {
-  // CORS (optional, helps if you embed elsewhere)
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
 
@@ -24,69 +22,73 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "missing_inputs" });
     }
 
-    // Convert raw base64 -> data URL (what Gradio expects)
-    const dataUrl = imageBase64.startsWith("data:")
-      ? imageBase64
-      : `data:image/png;base64,${imageBase64}`;
-
-    // Space URL (configurable via env var if you want)
+    // Your Space base URL — make sure this is EXACT:
     const SPACE_URL = process.env.HF_SPACE_URL || "https://xiaoxiao12123-sketch-to-style.hf.space";
-    const ENDPOINT = `${SPACE_URL}/run/predict`;
 
-    // If your Space is PRIVATE, add an Access Token in Vercel env: HF_TOKEN
+    // HF token only if the Space is private
     const headers = { "Content-Type": "application/json" };
     if (process.env.HF_TOKEN) headers.Authorization = `Bearer ${process.env.HF_TOKEN}`;
 
-    // Warm up the Space (helps cold-starts)
-    // Ignore errors — it's just a ping
-    try { await fetch(SPACE_URL, { method: "GET" }); } catch {}
+    // Gradio expects a data URL for images
+    const dataUrl = imageBase64.startsWith("data:")
+      ? imageBase64
+      : `data:image/png;base64,${imageBase64}`;
 
     const payload = {
       data: [dataUrl, style, extra, steps, guidance, img_guidance, seed],
     };
 
-    // Retry loop with backoff + longer per-attempt timeout
-    const maxAttempts = 3;
-    let lastErrorText = "";
+    // Warm up Space (ignore errors)
+    try { await fetch(SPACE_URL); } catch {}
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      // 55s per attempt (Vercel Node functions permit longer than Edge)
+    async function callPredict(path) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 55_000);
-
       try {
-        const resp = await fetch(ENDPOINT, {
+        const resp = await fetch(`${SPACE_URL}${path}`, {
           method: "POST",
           headers,
           body: JSON.stringify(payload),
           signal: controller.signal,
         });
-
+        const text = await resp.text().catch(() => "");
+        let json;
+        try { json = JSON.parse(text); } catch {}
+        return { ok: resp.ok, status: resp.status, text, json };
+      } finally {
         clearTimeout(timer);
+      }
+    }
 
-        if (resp.ok) {
-          const json = await resp.json();
-          const out = json?.data?.[0];
+    // Try /run/predict then /api/predict/
+    const paths = ["/run/predict", "/api/predict/"];
+    let last = null;
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      for (const p of paths) {
+        const r = await callPredict(p);
+        last = r;
+        if (r.ok) {
+          const out = r.json?.data?.[0];
           const image =
             typeof out === "string" && out.startsWith("data:image")
               ? out
               : `data:image/png;base64,${out || ""}`;
           return res.status(200).json({ image });
-        } else {
-          lastErrorText = await resp.text().catch(() => "");
         }
-      } catch (err) {
-        clearTimeout(timer);
-        lastErrorText = String(err);
+        // If 404 Not Found, try the next path immediately
+        if (r.status === 404) continue;
       }
-
-      // Backoff: 3s, then 6s
-      await new Promise((r) => setTimeout(r, attempt * 3000));
+      // backoff for cold start
+      await new Promise(r => setTimeout(r, attempt * 3000));
     }
 
-    return res.status(502).json({ error: "hf_failed", detail: lastErrorText || "Unknown error" });
+    return res.status(502).json({
+      error: "hf_failed",
+      detail: last?.text || "Unknown error"
+    });
+
   } catch (e) {
     return res.status(500).json({ error: "server_error", detail: String(e) });
   }
 }
-
