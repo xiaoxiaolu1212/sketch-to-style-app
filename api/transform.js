@@ -50,24 +50,45 @@ export default async function handler(req, res) {
     try { await fetch(SPACE_URL, { method: "GET" }); } catch {}
 
     // Helper to call a path with timeout
-    async function callPredict(path) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 55_000); // Vercel default 60s limit
-      try {
-        const resp = await fetch(`${SPACE_URL}${path}`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(payload),
-          signal: controller.signal,
-        });
-        const text = await resp.text().catch(() => "");
-        let json = null;
-        try { json = JSON.parse(text); } catch {}
-        return { ok: resp.ok, status: resp.status, text, json };
-      } finally {
-        clearTimeout(timer);
-      }
-    }
+    // Build the payload exactly as app.py expects
+function buildPayload({ imageBase64, style, extra = "", steps = 15, guidance = 7, img_guidance = 1.5, seed = -1 }) {
+  return {
+    data: [
+      imageBase64,  // sketch (base64 string or data URL)
+      style,        // dropdown style
+      extra,        // extra prompt
+      steps,
+      guidance,
+      img_guidance,
+      seed
+    ]
+  };
+}
+
+async function callPredict(path = "/run/predict", inputs) {
+  const headers = { "Content-Type": "application/json" };
+  const payload = buildPayload(inputs);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 55_000); // Vercel default ~60s
+
+  try {
+    const resp = await fetch(`${SPACE_URL}${path}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    const text = await resp.text().catch(() => "");
+    let json = null;
+    try { json = JSON.parse(text); } catch {}
+
+    return { ok: resp.ok, status: resp.status, text, json };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
     // Try both common Gradio endpoints (some Spaces use one or the other)
     const paths = ["/run/predict", "/api/predict/"];
