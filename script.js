@@ -115,31 +115,57 @@ function updateTransformButton() {
 }
 
 async function transformSketch() {
-    if (!selectedFile || !selectedStyle) {
-        showNotification('Please select both an image and a style.', 'error');
-        return;
+  if (!selectedFile || !selectedStyle) {
+    showNotification('Please select both an image and a style.', 'error');
+    return;
+  }
+
+  showLoading(true);
+  transformBtn.disabled = true;
+
+  try {
+    // Convert file → base64 string
+    const base64 = await fileToBase64(selectedFile);
+
+    const response = await fetch("/api/transform", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        imageBase64: base64,
+        style: selectedStyle,
+        extra: "",       // optional custom prompt
+        steps: 15,
+        guidance: 7,
+        img_guidance: 1.5,
+        seed: -1,
+      }),
+    });
+
+    if (!response.ok) {
+      const txt = await response.text().catch(() => "");
+      const msg = txt || `${response.status} ${response.statusText}`;
+      console.error("Transform failed:", msg);
+      showNotification("Transform failed: " + msg, "error");
+      return;
     }
 
-    showLoading(true);
-    transformBtn.disabled = true;
+    const data = await response.json();
+    if (!data.image) throw new Error("No image returned");
 
-    try {
-        // Convert the uploaded file to base64 (without the prefix)
-        const base64 = await fileToBase64(selectedFile);
+    resultImage.src = data.image;
+    resultSection.style.display = "block";
+    resultSection.scrollIntoView({ behavior: "smooth" });
 
-        // Call your Vercel backend function
-        const response = await fetch("https://sketch-to-style-app.vercel.app/api/transform", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageBase64: base64, style: selectedStyle })
-        });
-if (!response.ok) {
-    const txt = await response.text().catch(() => "");
-    const msg = txt || `${response.status} ${response.statusText}`;
-    console.error("Transform failed:", msg);
-    showNotification("Transform failed: " + msg, "error");
-    return;
+    showNotification("Sketch transformed successfully!", "success");
+  } catch (err) {
+    console.error("Transform failed:", err);
+    showNotification("Transform failed: " + err.message, "error");
+  } finally {
+    showLoading(false);
+    transformBtn.disabled = false;
+  }
 }
+
 
 
         // Show the returned image
